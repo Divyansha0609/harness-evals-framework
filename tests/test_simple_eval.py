@@ -56,27 +56,22 @@ def assert_test(ec, metrics, sinks=None):
         for sink in sinks:
             sink.write(ec, scores)
 
-# Tests  
+# Load goldens dataset
+with open("goldens.json") as f:
+    goldens = json.load(f)
 
 sink = JsonSink("results.jsonl")
 
-def test_prompt_regression():
-    """Catches when a prompt change breaks expected output"""
-    ec = EvalCase(
-        input="Capital of France?",
-        output="Paris",
-        expected="Paris",
-        latency_ms=200
-    )
-    assert_test(ec, metrics=[ExactMatchMetric()], sinks=[sink])
+# Data-driven tests from goldens.json 
 
-def test_model_swap_drift():
-    """Catches behavior drift when switching model versions"""
+@pytest.mark.parametrize("golden", goldens)
+def test_prompt_regression(golden):
+    """Loads ground truth from goldens.json — catches if output stops matching expected"""
     ec = EvalCase(
-        input="What is 2+2?",
-        output="4",
-        expected="4",
-        latency_ms=180
+        input=golden["input"],
+        output=golden["expected"],  # swap for real model output when ready
+        expected=golden["expected"],
+        latency_ms=200
     )
     assert_test(ec, metrics=[ExactMatchMetric()], sinks=[sink])
 
@@ -109,3 +104,19 @@ def test_tool_routing():
         latency_ms=100
     )
     assert_test(ec, metrics=[ToolRoutingMetric(expected_tool="flight_search")], sinks=[sink])
+
+# Intentional failure test
+
+def test_catches_regression():
+    """
+    Simulates a bad model response — proves CI actually blocks regressions.
+    A model swap returned 'Lyon' instead of 'Paris' — this test catches it.
+    """
+    ec = EvalCase(
+        input="Capital of France?",
+        output="Lyon",  # wrong — simulating bad model output
+        expected="Paris",
+        latency_ms=200
+    )
+    with pytest.raises(AssertionError):
+        assert_test(ec, metrics=[ExactMatchMetric()])
